@@ -21,6 +21,7 @@ export default function CPADashboard() {
   const [filterSeverity, setFilterSeverity] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteMsg, setInviteMsg] = useState('');
+  const [trashedDocs, setTrashedDocs] = useState([]);
   const fileRef = useRef();
 
   useEffect(() => { fetchDocuments(); fetchClients(); }, []);
@@ -68,6 +69,23 @@ export default function CPADashboard() {
     const a = document.createElement('a'); a.href = url; a.download = `analysis-${docId}.json`; a.click();
   };
 
+  const fetchTrash = async () => {
+    const res = await api.get('/documents/trash/list');
+    setTrashedDocs(res.data.documents);
+  };
+
+  const handleDelete = async (docId) => {
+    if (!window.confirm('Move this document to trash?')) return;
+    await api.delete(`/documents/${docId}`);
+    fetchDocuments();
+  };
+
+  const handleRestore = async (docId) => {
+    await api.post(`/documents/${docId}/restore`);
+    fetchTrash();
+    fetchDocuments();
+  };
+
   const handleInvite = (e) => {
     e.preventDefault();
     if (!inviteEmail) return;
@@ -101,9 +119,9 @@ export default function CPADashboard() {
         <div style={styles.sidebarLogo}>TAX<span style={{ color: '#2563eb' }}>AI</span></div>
         <div style={styles.sidebarUser}>{user.full_name}<span style={styles.badge}>CPA</span></div>
         <nav style={styles.nav}>
-          {[['documents', 'Documents'], ['analytics', 'Analytics'], ['clients', 'Clients'], ['audit', 'Audit Log']].map(([key, label]) => (
+          {[['documents', 'Documents'], ['analytics', 'Analytics'], ['clients', 'Clients'], ['audit', 'Audit Log'], ['trash', '🗑 Trash']].map(([key, label]) => (
             <button key={key} style={view === key ? styles.navItemActive : styles.navItem}
-              onClick={() => { setView(key); if (key === 'audit') fetchAuditLog(); }}>
+              onClick={() => { setView(key); if (key === 'audit') fetchAuditLog(); if (key === 'trash') fetchTrash(); }}>
               {label}
             </button>
           ))}
@@ -186,6 +204,7 @@ export default function CPADashboard() {
                         <td style={styles.td}>
                           <button style={styles.actionBtn} onClick={() => setSelected(doc)}>View</button>
                           {doc.analysis_id && <button style={styles.actionBtn} onClick={() => handleExport(doc.id)}>Export</button>}
+                          <button style={styles.deleteBtn} onClick={() => handleDelete(doc.id)}>🗑</button>
                         </td>
                       </tr>
                     );
@@ -279,6 +298,40 @@ export default function CPADashboard() {
               </table>
             </div>
           </>
+        )}
+
+        {/* Trash view */}
+        {view === 'trash' && (
+          <div>
+            <div style={styles.trashHeader}>
+              <div style={styles.trashTitle}>🗑 Trash</div>
+              <div style={styles.trashSub}>Deleted documents can be restored at any time.</div>
+            </div>
+            <div style={styles.tableWrap}>
+              <table style={styles.table}>
+                <thead><tr style={styles.thead}>
+                  <th style={styles.th}>Client</th><th style={styles.th}>File</th>
+                  <th style={styles.th}>Type</th><th style={styles.th}>Deleted</th>
+                  <th style={styles.th}>Actions</th>
+                </tr></thead>
+                <tbody>
+                  {trashedDocs.length === 0 ? (
+                    <tr><td colSpan={5} style={{ ...styles.td, textAlign: 'center', color: '#94a3b8', padding: '2rem' }}>Trash is empty</td></tr>
+                  ) : trashedDocs.map(doc => (
+                    <tr key={doc.id} style={styles.tr}>
+                      <td style={styles.td}>{doc.client_name || user.full_name}</td>
+                      <td style={styles.td}><span style={styles.filename}>{doc.original_filename}</span></td>
+                      <td style={styles.td}><span style={styles.docTypeBadge}>{DOC_TYPE_LABELS[doc.doc_type] || '—'}</span></td>
+                      <td style={styles.td}><span style={{ fontSize: '0.82rem', color: '#64748b' }}>{new Date(doc.deleted_at).toLocaleDateString()}</span></td>
+                      <td style={styles.td}>
+                        <button style={styles.restoreBtn} onClick={() => handleRestore(doc.id)}>↩ Restore</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
 
         {/* Audit log view */}
@@ -579,6 +632,11 @@ const styles = {
   figureNeg: { color: '#dc2626', fontWeight: '600' },
   figureSummary: { background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' },
   summaryRow: { display: 'flex', justifyContent: 'space-between', padding: '0.6rem 1rem', borderBottom: '1px solid #f1f5f9', fontSize: '0.85rem' },
+  deleteBtn: { padding: '0.3rem 0.6rem', background: '#fef2f2', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '0.82rem', color: '#dc2626' },
+  restoreBtn: { padding: '0.3rem 0.75rem', background: '#f0fdf4', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '0.82rem', color: '#15803d', fontWeight: '600' },
+  trashHeader: { marginBottom: '1.25rem' },
+  trashTitle: { fontWeight: '700', fontSize: '1.1rem', color: '#0f172a', marginBottom: '0.25rem' },
+  trashSub: { fontSize: '0.85rem', color: '#64748b' },
   summaryLabel: { color: '#64748b' },
   summaryVal: { fontWeight: '600', color: '#334155' },
 };

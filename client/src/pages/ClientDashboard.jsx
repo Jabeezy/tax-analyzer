@@ -14,6 +14,8 @@ export default function ClientDashboard() {
   const [uploadMsg, setUploadMsg] = useState('');
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState('');
+  const [showTrash, setShowTrash] = useState(false);
+  const [trashedDocs, setTrashedDocs] = useState([]);
   const fileRef = useRef();
 
   useEffect(() => { fetchDocuments(); }, []);
@@ -21,6 +23,11 @@ export default function ClientDashboard() {
   const fetchDocuments = async () => {
     const res = await api.get('/documents');
     setDocuments(res.data.documents);
+  };
+
+  const fetchTrash = async () => {
+    const res = await api.get('/documents/trash/list');
+    setTrashedDocs(res.data.documents);
   };
 
   const handleUpload = async (e) => {
@@ -43,6 +50,18 @@ export default function ClientDashboard() {
     }
   };
 
+  const handleDelete = async (docId) => {
+    if (!window.confirm('Move this document to trash?')) return;
+    await api.delete(`/documents/${docId}`);
+    fetchDocuments();
+  };
+
+  const handleRestore = async (docId) => {
+    await api.post(`/documents/${docId}/restore`);
+    fetchTrash();
+    fetchDocuments();
+  };
+
   const filteredDocs = documents.filter(doc => {
     const matchSearch = !search || doc.original_filename?.toLowerCase().includes(search.toLowerCase());
     const matchType = !filterType || doc.doc_type === filterType;
@@ -53,123 +72,158 @@ export default function ClientDashboard() {
 
   return (
     <div style={styles.page}>
-      {/* Header */}
       <div style={styles.header}>
         <div style={styles.logo}>TAX<span style={{ color: '#2563eb' }}>AI</span></div>
         <div style={styles.headerRight}>
           <span style={styles.userName}>{user.full_name}</span>
+          <button style={styles.trashToggleBtn} onClick={() => { setShowTrash(!showTrash); if (!showTrash) fetchTrash(); }}>
+            {showTrash ? '← Documents' : '🗑 Trash'}
+          </button>
           <button style={styles.logoutBtn} onClick={logout}>Sign Out</button>
         </div>
       </div>
 
       <div style={styles.content}>
-        {/* Hero upload */}
-        <div style={styles.hero}>
-          <h1 style={styles.heroTitle}>Your Tax Documents</h1>
-          <p style={styles.heroSub}>Upload a tax document for instant AI-powered analysis and CPA review.</p>
-          <label style={{ ...styles.uploadBtn, opacity: uploading ? 0.7 : 1 }}>
-            {uploading ? 'Analyzing...' : '+ Upload PDF'}
-            <input ref={fileRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={handleUpload} disabled={uploading} />
-          </label>
-          {uploadMsg && <p style={styles.uploadMsg}>{uploadMsg}</p>}
-        </div>
 
-        {/* Stats row */}
-        {documents.length > 0 && (
-          <div style={styles.statsRow}>
-            {[
-              ['Documents', documents.length],
-              ['Analyzed', documents.filter(d => d.status === 'complete').length],
-              ['Items to Review', highFlagCount]
-            ].map(([label, val]) => (
-              <div key={label} style={styles.statCard}>
-                <div style={styles.statVal}>{val}</div>
-                <div style={styles.statLabel}>{label}</div>
+        {showTrash ? (
+          <div>
+            <div style={styles.trashHeader}>
+              <div style={styles.trashTitle}>🗑 Trash</div>
+              <div style={styles.trashSub}>Deleted documents can be restored at any time.</div>
+            </div>
+            {trashedDocs.length === 0 ? (
+              <div style={styles.empty}>
+                <div style={styles.emptyIcon}>🗑</div>
+                <div style={styles.emptyTitle}>Trash is empty</div>
               </div>
-            ))}
+            ) : (
+              <div style={styles.grid}>
+                {trashedDocs.map(doc => (
+                  <div key={doc.id} style={{ ...styles.docCard, opacity: 0.8 }}>
+                    <div style={styles.docCardHeader}>
+                      <span style={{ ...styles.docTypeBadge, background: '#f1f5f9', color: '#64748b' }}>
+                        {DOC_TYPE_LABELS[doc.doc_type] || 'Unknown'}
+                      </span>
+                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>deleted</span>
+                    </div>
+                    <div style={styles.docFilename}>{doc.original_filename}</div>
+                    <div style={styles.docDate}>Deleted {new Date(doc.deleted_at).toLocaleDateString()}</div>
+                    <button style={styles.restoreBtn} onClick={() => handleRestore(doc.id)}>↩ Restore</button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        ) : (
+          <div>
+            <div style={styles.hero}>
+              <h1 style={styles.heroTitle}>Your Tax Documents</h1>
+              <p style={styles.heroSub}>Upload a tax document for instant AI-powered analysis and CPA review.</p>
+              <label style={{ ...styles.uploadBtn, opacity: uploading ? 0.7 : 1 }}>
+                {uploading ? 'Analyzing...' : '+ Upload PDF'}
+                <input ref={fileRef} type="file" accept=".pdf" style={{ display: 'none' }} onChange={handleUpload} disabled={uploading} />
+              </label>
+              {uploadMsg && <p style={styles.uploadMsg}>{uploadMsg}</p>}
+            </div>
 
-        {/* Search + filter */}
-        {documents.length > 0 && (
-          <div style={styles.filterBar}>
-            <input style={styles.searchInput} placeholder="Search documents..." value={search} onChange={e => setSearch(e.target.value)} />
-            <select style={styles.filterSelect} value={filterType} onChange={e => setFilterType(e.target.value)}>
-              <option value="">All Types</option>
-              {Object.entries(DOC_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
-            {(search || filterType) && (
-              <button style={styles.clearBtn} onClick={() => { setSearch(''); setFilterType(''); }}>Clear</button>
+            {documents.length > 0 && (
+              <div style={styles.statsRow}>
+                {[
+                  ['Documents', documents.length],
+                  ['Analyzed', documents.filter(d => d.status === 'complete').length],
+                  ['Items to Review', highFlagCount]
+                ].map(([label, val]) => (
+                  <div key={label} style={styles.statCard}>
+                    <div style={styles.statVal}>{val}</div>
+                    <div style={styles.statLabel}>{label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {documents.length > 0 && (
+              <div style={styles.filterBar}>
+                <input style={styles.searchInput} placeholder="Search documents..." value={search} onChange={e => setSearch(e.target.value)} />
+                <select style={styles.filterSelect} value={filterType} onChange={e => setFilterType(e.target.value)}>
+                  <option value="">All Types</option>
+                  {Object.entries(DOC_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+                {(search || filterType) && (
+                  <button style={styles.clearBtn} onClick={() => { setSearch(''); setFilterType(''); }}>Clear</button>
+                )}
+              </div>
+            )}
+
+            {documents.length === 0 ? (
+              <div style={styles.empty}>
+                <div style={styles.emptyIcon}>📄</div>
+                <div style={styles.emptyTitle}>No documents yet</div>
+                <p style={styles.emptySub}>Upload your first tax document above to get started. We support Schedule E, K-1, Form 1040, and W-2/1099.</p>
+              </div>
+            ) : filteredDocs.length === 0 ? (
+              <div style={styles.empty}>
+                <div style={styles.emptyIcon}>🔍</div>
+                <p style={{ color: '#94a3b8' }}>No documents match your search</p>
+              </div>
+            ) : (
+              <div style={styles.grid}>
+                {filteredDocs.map(doc => {
+                  const flags = doc.anomaly_flags || [];
+                  const highFlags = flags.filter(f => f.severity === 'high').length;
+                  const medFlags = flags.filter(f => f.severity === 'medium').length;
+                  return (
+                    <div key={doc.id} style={styles.docCard} onClick={() => setSelected(doc)}>
+                      <div style={styles.docCardHeader}>
+                        <span style={{ ...styles.docTypeBadge, background: `${DOC_TYPE_COLORS[doc.doc_type]}18`, color: DOC_TYPE_COLORS[doc.doc_type] }}>
+                          {DOC_TYPE_LABELS[doc.doc_type] || 'Processing'}
+                        </span>
+                        <span style={{ ...styles.statusDot, background: doc.status === 'complete' ? '#22c55e' : '#f59e0b' }} />
+                      </div>
+                      <div style={styles.docFilename}>{doc.original_filename}</div>
+                      <div style={styles.docDate}>{new Date(doc.created_at).toLocaleDateString()}</div>
+                      <div style={styles.docFooter}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                          {doc.analysis_id && (
+                            <span style={styles.confidenceTag}>{Math.round((doc.confidence_score || 0) * 100)}% confidence</span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          <div style={styles.flagRow}>
+                            {highFlags > 0 && <span style={{ ...styles.flagPill, background: '#fef2f2', color: '#dc2626' }}>{highFlags} high</span>}
+                            {medFlags > 0 && <span style={{ ...styles.flagPill, background: '#fffbeb', color: '#d97706' }}>{medFlags} med</span>}
+                          </div>
+                          <button style={styles.cardDeleteBtn} onClick={e => { e.stopPropagation(); handleDelete(doc.id); }}>🗑</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {documents.length > 0 && (
+              <div style={styles.timelineSection}>
+                <div style={styles.timelineTitle}>Document History</div>
+                <div style={styles.timeline}>
+                  {documents.slice().reverse().map((doc, i) => (
+                    <div key={doc.id} style={styles.timelineItem}>
+                      <div style={styles.timelineDot} />
+                      {i < documents.length - 1 && <div style={styles.timelineLine} />}
+                      <div style={styles.timelineContent}>
+                        <div style={styles.timelineFile}>{doc.original_filename}</div>
+                        <div style={styles.timelineMeta}>
+                          {DOC_TYPE_LABELS[doc.doc_type] || 'Unknown'} · Uploaded {new Date(doc.created_at).toLocaleDateString()} ·
+                          <span style={{ color: doc.status === 'complete' ? '#15803d' : '#d97706', marginLeft: '4px' }}>{doc.status}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
           </div>
         )}
 
-        {/* Documents grid */}
-        {documents.length === 0 ? (
-          <div style={styles.empty}>
-            <div style={styles.emptyIcon}>📄</div>
-            <div style={styles.emptyTitle}>No documents yet</div>
-            <p style={styles.emptySub}>Upload your first tax document above to get started. We support Schedule E, K-1, Form 1040, and W-2/1099.</p>
-          </div>
-        ) : filteredDocs.length === 0 ? (
-          <div style={styles.empty}>
-            <div style={styles.emptyIcon}>🔍</div>
-            <p style={{ color: '#94a3b8' }}>No documents match your search</p>
-          </div>
-        ) : (
-          <div style={styles.grid}>
-            {filteredDocs.map(doc => {
-              const flags = doc.anomaly_flags || [];
-              const highFlags = flags.filter(f => f.severity === 'high').length;
-              const medFlags = flags.filter(f => f.severity === 'medium').length;
-              return (
-                <div key={doc.id} style={styles.docCard} onClick={() => setSelected(doc)}>
-                  <div style={styles.docCardHeader}>
-                    <span style={{ ...styles.docTypeBadge, background: `${DOC_TYPE_COLORS[doc.doc_type]}18`, color: DOC_TYPE_COLORS[doc.doc_type] }}>
-                      {DOC_TYPE_LABELS[doc.doc_type] || 'Processing'}
-                    </span>
-                    <span style={{ ...styles.statusDot, background: doc.status === 'complete' ? '#22c55e' : '#f59e0b' }} />
-                  </div>
-                  <div style={styles.docFilename}>{doc.original_filename}</div>
-                  <div style={styles.docDate}>{new Date(doc.created_at).toLocaleDateString()}</div>
-                  <div style={styles.docFooter}>
-                    {doc.analysis_id && (
-                      <span style={styles.confidenceTag}>
-                        {Math.round((doc.confidence_score || 0) * 100)}% confidence
-                      </span>
-                    )}
-                    <div style={styles.flagRow}>
-                      {highFlags > 0 && <span style={{ ...styles.flagPill, background: '#fef2f2', color: '#dc2626' }}>{highFlags} high</span>}
-                      {medFlags > 0 && <span style={{ ...styles.flagPill, background: '#fffbeb', color: '#d97706' }}>{medFlags} med</span>}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Timeline */}
-        {documents.length > 0 && (
-          <div style={styles.timelineSection}>
-            <div style={styles.timelineTitle}>Document History</div>
-            <div style={styles.timeline}>
-              {documents.slice().reverse().map((doc, i) => (
-                <div key={doc.id} style={styles.timelineItem}>
-                  <div style={styles.timelineDot} />
-                  {i < documents.length - 1 && <div style={styles.timelineLine} />}
-                  <div style={styles.timelineContent}>
-                    <div style={styles.timelineFile}>{doc.original_filename}</div>
-                    <div style={styles.timelineMeta}>
-                      {DOC_TYPE_LABELS[doc.doc_type] || 'Unknown'} · Uploaded {new Date(doc.created_at).toLocaleDateString()} ·
-                      <span style={{ color: doc.status === 'complete' ? '#15803d' : '#d97706', marginLeft: '4px' }}>{doc.status}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
 
       {selected && <ClientAnalysisPanel doc={selected} onClose={() => setSelected(null)} />}
@@ -226,7 +280,6 @@ function ClientAnalysisPanel({ doc, onClose }) {
         </div>
 
         <div style={styles.modalBody} id="client-print-analysis">
-          {/* Confidence bar */}
           <div style={styles.confidenceBar}>
             <div>
               <div style={styles.confidenceLabel}>Analysis Confidence</div>
@@ -237,16 +290,14 @@ function ClientAnalysisPanel({ doc, onClose }) {
             <div style={styles.confidenceVal}>{Math.round((analysis.confidence_score || 0) * 100)}%</div>
           </div>
 
-          {/* Summary */}
           <div style={styles.sectionTitle}>Summary</div>
           <p style={styles.summaryText}>{analysis.narrative_summary}</p>
 
-          {/* Flags */}
           {flags.length > 0 && (
             <>
               <div style={styles.sectionTitle}>Items for Review ({flags.length})</div>
               {flags.map((f, i) => (
-                <div key={i} style={{ ...styles.flag, borderLeft: `4px solid ${SEVERITY_COLORS[f.severity] || '#ccc'}` }} className={`flag ${f.severity}`}>
+                <div key={i} style={{ ...styles.flag, borderLeft: `4px solid ${SEVERITY_COLORS[f.severity] || '#ccc'}` }}>
                   <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.25rem' }}>
                     <span style={{ ...styles.severityBadge, background: SEVERITY_COLORS[f.severity] }}>{f.severity.toUpperCase()}</span>
                     <strong style={{ fontSize: '0.88rem' }}>{f.field}</strong>
@@ -257,20 +308,18 @@ function ClientAnalysisPanel({ doc, onClose }) {
             </>
           )}
 
-          {/* Recommendations */}
           {recs.length > 0 && (
             <>
               <div style={styles.sectionTitle}>Recommendations</div>
               {recs.map((r, i) => (
-                <div key={i} style={styles.rec} className="rec">
-                  <span style={styles.recNum} className="num">{i + 1}</span>
+                <div key={i} style={styles.rec}>
+                  <span style={styles.recNum}>{i + 1}</span>
                   <p style={styles.recText}>{r}</p>
                 </div>
               ))}
             </>
           )}
 
-          {/* Figures */}
           {Object.keys(figures).length > 0 && (
             <>
               <div style={styles.sectionTitle}>Extracted Figures</div>
@@ -278,7 +327,7 @@ function ClientAnalysisPanel({ doc, onClose }) {
             </>
           )}
 
-          <p style={styles.disclaimer} className="disclaimer">
+          <p style={styles.disclaimer}>
             This analysis is generated by AI and should be reviewed by your CPA before filing.
           </p>
         </div>
@@ -353,6 +402,7 @@ const styles = {
   logo: { fontSize: '1.4rem', fontWeight: '700', letterSpacing: '-0.5px', color: '#0f1923' },
   headerRight: { display: 'flex', alignItems: 'center', gap: '1rem' },
   userName: { fontSize: '0.9rem', color: '#64748b' },
+  trashToggleBtn: { padding: '0.4rem 0.85rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', color: '#dc2626' },
   logoutBtn: { padding: '0.4rem 0.85rem', background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', cursor: 'pointer', fontSize: '0.85rem', color: '#64748b' },
   content: { maxWidth: '960px', margin: '0 auto', padding: '2rem 1.5rem' },
   hero: { textAlign: 'center', padding: '2rem 0 2.5rem' },
@@ -373,7 +423,7 @@ const styles = {
   emptyTitle: { fontSize: '1.1rem', fontWeight: '600', color: '#475569', marginBottom: '0.5rem' },
   emptySub: { fontSize: '0.9rem', maxWidth: '400px', margin: '0 auto', lineHeight: '1.6' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '1rem', marginBottom: '2.5rem' },
-  docCard: { background: '#fff', borderRadius: '12px', padding: '1.25rem', cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1.5px solid transparent', transition: 'border-color 0.15s, box-shadow 0.15s' },
+  docCard: { background: '#fff', borderRadius: '12px', padding: '1.25rem', cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,0.08)', border: '1.5px solid transparent' },
   docCardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.85rem' },
   docTypeBadge: { padding: '3px 10px', borderRadius: '4px', fontSize: '0.78rem', fontWeight: '600' },
   statusDot: { width: '8px', height: '8px', borderRadius: '50%' },
@@ -383,6 +433,11 @@ const styles = {
   confidenceTag: { fontSize: '0.75rem', color: '#64748b' },
   flagRow: { display: 'flex', gap: '0.3rem' },
   flagPill: { padding: '2px 7px', borderRadius: '4px', fontSize: '0.72rem', fontWeight: '600' },
+  cardDeleteBtn: { padding: '2px 6px', background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.85rem', color: '#94a3b8' },
+  restoreBtn: { width: '100%', marginTop: '0.75rem', padding: '0.5rem', background: '#f0fdf4', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.82rem', color: '#15803d', fontWeight: '600' },
+  trashHeader: { marginBottom: '1.25rem' },
+  trashTitle: { fontWeight: '700', fontSize: '1.1rem', color: '#0f172a', marginBottom: '0.25rem' },
+  trashSub: { fontSize: '0.85rem', color: '#64748b' },
   timelineSection: { marginTop: '1rem' },
   timelineTitle: { fontWeight: '700', fontSize: '0.82rem', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#64748b', marginBottom: '1rem' },
   timeline: { position: 'relative' },
