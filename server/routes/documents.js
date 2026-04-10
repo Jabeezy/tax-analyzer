@@ -49,11 +49,13 @@ router.get('/', verifyToken, auditLog('documents_list', 'document'), async (req,
     if (req.user.role === 'cpa') {
       result = await db.query(
         `SELECT d.*, u.full_name as client_name, u.email as client_email, a.id as analysis_id, a.confidence_score, a.anomaly_flags
-         FROM documents d JOIN users u ON d.user_id = u.id LEFT JOIN analyses a ON a.document_id = d.id ORDER BY d.created_at DESC`
+         FROM documents d JOIN users u ON d.user_id = u.id LEFT JOIN analyses a ON a.document_id = d.id
+         WHERE d.deleted_at IS NULL ORDER BY d.created_at DESC`
       );
     } else {
       result = await db.query(
-        `SELECT d.*, a.id as analysis_id, a.confidence_score FROM documents d LEFT JOIN analyses a ON a.document_id = d.id WHERE d.user_id = $1 ORDER BY d.created_at DESC`,
+        `SELECT d.*, a.id as analysis_id, a.confidence_score, a.anomaly_flags FROM documents d LEFT JOIN analyses a ON a.document_id = d.id
+         WHERE d.user_id = $1 AND d.deleted_at IS NULL ORDER BY d.created_at DESC`,
         [req.user.id]
       );
     }
@@ -71,6 +73,27 @@ router.get('/admin/audit-log', verifyToken, requireRole('cpa'), async (req, res)
     res.json({ logs: result.rows });
   } catch (err) {
     res.status(500).json({ error: 'Failed to retrieve audit log' });
+  }
+});
+
+router.get('/trash/list', verifyToken, async (req, res) => {
+  try {
+    let result;
+    if (req.user.role === 'cpa') {
+      result = await db.query(
+        `SELECT d.*, u.full_name as client_name FROM documents d
+         JOIN users u ON d.user_id = u.id
+         WHERE d.deleted_at IS NOT NULL ORDER BY d.deleted_at DESC`
+      );
+    } else {
+      result = await db.query(
+        `SELECT * FROM documents WHERE user_id = $1 AND deleted_at IS NOT NULL ORDER BY deleted_at DESC`,
+        [req.user.id]
+      );
+    }
+    res.json({ documents: result.rows });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to retrieve trash' });
   }
 });
 
@@ -104,6 +127,34 @@ router.get('/:id/export', verifyToken, auditLog('document_export', 'document'), 
     res.json({ exported_at: new Date().toISOString(), document: doc });
   } catch (err) {
     res.status(500).json({ error: 'Export failed' });
+  }
+});
+
+router.delete('/:id', verifyToken, auditLog('document_delete', 'document'), async (req, res) => {
+  try {
+    const result = await db.query(`SELECT * FROM documents WHERE id = $1`, [req.params.id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
+    const doc = result.rows[0];
+    if (req.user.role === 'client' && doc.user_id !== req.user.id) return res.status(403).json({ error: 'Access denied' });
+    await db.query(`UPDATE documents SET deleted_at = NOW() WHERE id = $1`, [req.params.id]);
+    res.json({ message: 'Document moved to trash' });
+  } catch (err) {
+    console.error('Delete error:', err);
+    res.status(500).json({ error: 'Failed to delete document' });
+  }
+});
+
+router.post('/:id/restore', verifyToken, auditLog('document_restore', 'document'), async (req, res) => {
+  try {
+    const result = await db.query(`SELECT * FROM documents WHERE id = $1`, [req.params.id]);
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Document not found' });
+    const doc = result.rows[0];
+    if (req.user.role === 'client' && doc.user_id !== req.user.id) return res.status(403).json({ error: 'Access denied' });
+    await db.query(`UPDATE documents SET deleted_at = NULL WHERE id = $1`, [req.params.id]);
+    res.json({ message: 'Document restored' });
+  } catch (err) {
+    console.error('Restore error:', err);
+    res.status(500).json({ error: 'Failed to restore document' });
   }
 });
 
